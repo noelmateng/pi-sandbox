@@ -1,0 +1,102 @@
+name: pi-deepseek-sandbox
+services:
+  egress:
+    image: pi-smokescreen:local
+    environment:
+      SANDBOX_HOST_NETWORK_HASH: ${SANDBOX_HOST_NETWORK_HASH:-manual}
+    build:
+      context: .
+      dockerfile: Dockerfile.egress
+    init: true
+    user: "1000:1000"
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    pids_limit: 128
+    mem_limit: 512m
+    cpus: 1
+    tmpfs: ["/tmp:rw,noexec,nosuid,nodev,size=32m,uid=1000,gid=1000"]
+    volumes:
+      - egress-socket:/run/egress
+      - ./logs:/audit
+      - ./runtime/host-deny-ranges.json:/etc/sandbox/host-deny-ranges.json:ro
+    networks: [model-egress]
+    logging:
+      driver: local
+      options:
+        max-size: "10m"
+        max-file: "3"
+    healthcheck:
+      test: ["CMD", "node", "-e", "const n=require('net'); const s=n.connect(4750,'127.0.0.1',()=>{s.end();process.exit(0)}); s.on('error',()=>process.exit(1));"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+  gateway:
+    image: pi-deepseek-sandbox:1.5.0
+    build: .
+    entrypoint: ["python3", "-u", "/opt/sandbox/gateway.py"]
+    init: true
+    user: "1000:1000"
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    pids_limit: 64
+    mem_limit: 256m
+    cpus: 0.5
+    tmpfs: ["/tmp:rw,noexec,nosuid,nodev,size=16m,uid=1000,gid=1000"]
+    volumes:
+      - gateway-socket:/run/gateway
+      - egress-socket:/run/egress:ro
+    secrets: [openrouter_key]
+    network_mode: none
+    depends_on:
+      egress:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python3", "-c", "import socket; s=socket.socket(socket.AF_UNIX); s.connect('/run/gateway/api.sock'); s.close()"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+  pi:
+    image: pi-deepseek-sandbox:1.5.0
+    depends_on:
+      gateway:
+        condition: service_healthy
+    init: true
+    user: "1000:1000"
+    network_mode: none
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    pids_limit: 256
+    mem_limit: 4g
+    cpus: 2
+    environment:
+      HOME: /home/node
+      PI_OFFLINE: "1"
+      TERM: xterm-256color
+      HTTP_PROXY: http://127.0.0.1:3128
+      HTTPS_PROXY: http://127.0.0.1:3128
+      ALL_PROXY: http://127.0.0.1:3128
+      http_proxy: http://127.0.0.1:3128
+      https_proxy: http://127.0.0.1:3128
+      all_proxy: http://127.0.0.1:3128
+      NO_PROXY: localhost,127.0.0.1,::1
+      no_proxy: localhost,127.0.0.1,::1
+      NODE_USE_ENV_PROXY: "1"
+    tmpfs: ["/tmp:rw,nosuid,nodev,size=512m,uid=1000,gid=1000"]
+    volumes:
+      - workspace:/workspace
+      - agent-home:/home/node
+      - gateway-socket:/run/gateway:ro
+      - egress-socket:/run/egress:ro
+volumes:
+  workspace:
+  agent-home:
+  gateway-socket:
+  egress-socket:
+networks:
+  model-egress:
+secrets:
+  openrouter_key:
+    file: ./secrets/openrouter-key

@@ -1,0 +1,9 @@
+*
+!Dockerfile
+!config/
+!config/**
+!gateway.py
+!relay.cjs
+!start.sh
+!egress.cjs
+!Dockerfile.egress

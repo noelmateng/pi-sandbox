@@ -1,0 +1,22 @@
+{
+  "providers": {
+    "sandbox-openrouter": {
+      "baseUrl": "http://127.0.0.1:8080/api/v1",
+      "api": "openai-completions",
+      "apiKey": "sandbox-placeholder",
+      "models": [{
+        "id": "deepseek/deepseek-v4.1-flash-1017",
+        "name": "DeepSeek V4.1 Flash 1017 (sandbox)",
+        "reasoning": true,
+        "input": ["text", "image"],
+        "contextWindow": 1048576,
+        "maxTokens": 32768,
+        "compat": {
+          "thinkingFormat": "openrouter",
+          "supportsDeveloperRole": false,
+          "maxTokensField": "max_tokens"
+        }
+      }]
+    }
+  }
+}

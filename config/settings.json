@@ -1,0 +1,5 @@
+{
+  "defaultProvider": "sandbox-openrouter",
+  "defaultModel": "deepseek/deepseek-v4.1-flash-1017",
+  "defaultThinkingLevel": "medium"
+}

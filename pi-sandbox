@@ -1,0 +1,50 @@
+#!/bin/bash
+set -euo pipefail
+cd -- "$(dirname -- "$0")"
+dc() { docker compose "$@"; }
+prepare() {
+  export SANDBOX_HOST_NETWORK_HASH
+  SANDBOX_HOST_NETWORK_HASH=$(node prepare.cjs)
+}
+case "${1:-run}" in
+  auth)
+    umask 077
+    mkdir -p secrets
+    chmod 700 secrets
+    read -r -s -p 'OpenRouter API key (hidden): ' key
+    printf '\n'
+    [[ -n "$key" ]] || { echo 'No key entered.' >&2; exit 1; }
+    printf '%s' "$key" > secrets/openrouter-key
+    unset key
+    # Docker Desktop bind-mount permission translation can vary. The secret
+    # directory is owner-only; the gateway runs as UID 1000 inside the VM.
+    chmod 644 secrets/openrouter-key
+    echo 'Key saved locally; only the gateway receives it.'
+    ;;
+  build)
+    # All build inputs are public. Avoid the Mac credential helper, which can
+    # block background builds while waiting on Keychain UI.
+    sandbox_docker_host="${DOCKER_HOST:-$(docker context inspect --format '{{.Endpoints.docker.Host}}')}"
+    sandbox_build_config=$(mktemp -d "${TMPDIR:-/tmp}/pi-docker-build.XXXXXX")
+    trap 'rm -rf "$sandbox_build_config"' EXIT
+    printf '%s\n' '{}' > "$sandbox_build_config/config.json"
+    docker --config "$sandbox_build_config" --host "$sandbox_docker_host" build -t pi-deepseek-sandbox:1.5.0 -f Dockerfile .
+    docker --config "$sandbox_build_config" --host "$sandbox_docker_host" build -t pi-smokescreen:local -f Dockerfile.egress .
+    ;;
+  run)
+    shift "$(( $# > 0 ? 1 : 0 ))"
+    [[ -s secrets/openrouter-key ]] || { echo "First run: $PWD/pi-sandbox auth" >&2; exit 1; }
+    prepare
+    dc up -d --wait
+    flags=(-T)
+    [[ -t 0 && -t 1 ]] && flags=(-it)
+    dc exec "${flags[@]}" pi pi --offline --no-extensions --no-mcp --no-skills --no-prompt-templates --no-approve "$@"
+    ;;
+  shell) prepare; dc up -d --wait; dc exec pi bash ;;
+  check) prepare; dc up -d --wait; dc exec -T pi python3 /opt/pi-config/check.py ;;
+  stop) dc down ;;
+  status) dc ps ;;
+  logs) tail -n 50 -F logs/egress.jsonl ;;
+  requests) node audit.cjs ;;
+  *) echo 'Usage: ./pi-sandbox {auth|build|run [pi arguments...]|shell|check|logs|requests|stop|status}' >&2; exit 1 ;;
+esac
